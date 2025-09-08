@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const playlistUrl = 'https://cdn.jsdelivr.net/gh/qq430950189/static-res@refs/heads/main/playlist.json'; // 你的远程 JSON 地址
+  const playlistUrl = 'https://cdn.jsdmirror.com/gh/qq430950189/static-res@main/playlist.json'; // 你的远程 JSON 地址
   let playlist = [];
   let currentIndex = 0;
   let playedIndices = [];
