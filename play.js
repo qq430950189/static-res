@@ -1,4 +1,3 @@
-<script>
 document.addEventListener('DOMContentLoaded', () => {
   const playlistUrl = 'https://cdn.jsdelivr.net/gh/qq430950189/static-res@refs/heads/main/playlist.json'; // 你的远程 JSON 地址
   let playlist = [];
@@ -121,4 +120,3 @@ document.addEventListener('DOMContentLoaded', () => {
       titleEl.textContent = '加载失败';
     });
 });
-</script>
