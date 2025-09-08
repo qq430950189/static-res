@@ -36,19 +36,22 @@ document.addEventListener('DOMContentLoaded', () => {
   );
 
   function loadTrack(index) {
-    if (!playlist.length) return;
-    if (sound) sound.unload();
-    currentIndex = index;
-    titleEl.textContent = playlist[index].title;
-    sound = new Howl({
-      src: [ playlist[index].url ],
-      html5: true,
-      onend: () => {
-        nextTrack();
-      }
-    });
-    audioMotion.connectInput(sound._sounds[0]._node);
-  }
+  if (!playlist.length) return;
+  if (sound) sound.unload();
+  currentIndex = index;
+  titleEl.textContent = playlist[index].title;
+
+  sound = new Howl({
+    src: [ playlist[index].url ],
+    html5: false, // 用 Web Audio
+    onend: nextTrack
+  });
+
+  // 延迟连接，确保 Howler 已创建节点
+  sound.once('play', () => {
+    audioMotion.connectInput(sound);
+  });
+}
 
   function playTrack() {
     if (!sound) loadTrack(currentIndex);
