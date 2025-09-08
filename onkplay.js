@@ -1,5 +1,5 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const playlistUrl = 'https://app.box.com/index.php?rm=box_download_shared_file&shared_name=p0k2vzosqozfogxaqgwpt0rbrddg9c5r&file_id=f_1978827382881'; // 你的远程 JSON 地址
+  const playlistUrl = 'https://od.lk/s/NV8yMDcxMTc3MzNf/playlist.json'; // 你的远程 JSON 地址
   let playlist = [];
   let currentIndex = 0;
   let playedIndices = [];
