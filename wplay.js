@@ -4,7 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentIndex = 0;
   let playedIndices = [];
   let sound = null;       // Web Audio 模式
-  let audioEl = null;     // HTML5 模式
+  let audioEl = null;     // HTML5 / Blob 模式
   let srcNode = null;     // HTML5 模式的 MediaElementSource
   let playing = false;
 
@@ -37,99 +37,116 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   );
 
-  // 尝试 Web Audio 模式
+  function cleanupAudio() {
+    if (sound) {
+      sound.stop();
+      sound.unload();
+      sound = null;
+    }
+    if (audioEl) {
+      audioEl.pause();
+      audioEl.src = '';
+    }
+  }
+
+  // Web Audio 模式
   function loadTrackWebAudio(index) {
     return new Promise((resolve, reject) => {
       try {
         sound = new Howl({
-          src: [ playlist[index].url ],
+          src: [playlist[index].url],
           html5: false,
           onend: nextTrack,
           onloaderror: () => reject('webaudio-fail')
         });
         sound.once('play', () => {
           audioMotion.connectInput(sound);
+          resolve();
         });
-        resolve();
       } catch (e) {
         reject(e);
       }
     });
   }
 
-  // HTML5 Audio 模式（避免重复 connect）
-  function loadTrackHTML5(index) {
+  // HTML5 Audio 模式
+  function prepareHTML5Audio() {
     if (!audioEl) {
       audioEl = new Audio();
       audioEl.crossOrigin = 'anonymous';
-      audioEl.addEventListener('ended', nextTrack);
-
+      audioEl.addEventListener('ended', () => {
+        if (audioEl.src.startsWith('blob:')) {
+          URL.revokeObjectURL(audioEl.src);
+        }
+        nextTrack();
+      });
       const ctx = audioMotion.audioCtx;
       srcNode = ctx.createMediaElementSource(audioEl);
       srcNode.connect(audioMotion.analyzer);
       audioMotion.analyzer.connect(ctx.destination);
     }
-    audioEl.src = playlist[index].url;
+  }
+
+  function loadTrackHTML5(index) {
+    return new Promise((resolve, reject) => {
+      prepareHTML5Audio();
+      audioEl.src = playlist[index].url;
+      audioEl.onerror = () => reject('html5-fail');
+      audioEl.oncanplay = () => resolve();
+    });
+  }
+
+  // Blob 模式
+  async function loadTrackBlob(index) {
+    try {
+      const res = await fetch(playlist[index].url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      prepareHTML5Audio();
+      audioEl.src = blobUrl;
+      await new Promise((resolve, reject) => {
+        audioEl.onerror = () => reject('blob-fail');
+        audioEl.oncanplay = () => resolve();
+      });
+      return true;
+    } catch (e) {
+      console.warn('Blob 播放失败');
+      return false;
+    }
   }
 
   // 智能加载
   async function loadTrack(index) {
-  if (!playlist.length) return;
-  currentIndex = index;
-  titleEl.textContent = playlist[index].title;
+    if (!playlist.length) return;
+    cleanupAudio();
+    currentIndex = index;
+    titleEl.textContent = playlist[index].title;
 
-  // 尝试 Web Audio 模式
-  try {
-    await new Promise((resolve, reject) => {
-      sound = new Howl({
-        src: [ playlist[index].url ],
-        html5: false,
-        onend: nextTrack,
-        onloaderror: () => reject('webaudio-fail')
-      });
-      sound.once('play', () => {
-        audioMotion.connectInput(sound);
-        resolve();
-      });
-    });
-    return; // 成功播放，直接返回
-  } catch {
-    console.warn('Web Audio 播放失败，尝试 HTML5 Audio');
-  }
-
-  // 尝试 HTML5 Audio 模式
-  try {
-    if (!audioEl) {
-      audioEl = new Audio();
-      audioEl.crossOrigin = 'anonymous';
-      audioEl.addEventListener('ended', nextTrack);
-
-      const ctx = audioMotion.audioCtx;
-      srcNode = ctx.createMediaElementSource(audioEl);
-      srcNode.connect(audioMotion.analyzer);
-      audioMotion.analyzer.connect(ctx.destination);
+    try {
+      await loadTrackWebAudio(index);
+      return;
+    } catch {
+      console.warn('Web Audio 播放失败，尝试 HTML5 Audio');
     }
-    audioEl.src = playlist[index].url;
 
-    await new Promise((resolve, reject) => {
-      audioEl.onerror = () => reject('html5-fail');
-      audioEl.oncanplay = () => resolve();
-    });
+    try {
+      await loadTrackHTML5(index);
+      return;
+    } catch {
+      console.warn('HTML5 Audio 播放失败，尝试 Blob');
+    }
 
-    return; // 成功加载 HTML5 音频
-  } catch {
-    console.warn('HTML5 Audio 播放失败，跳过该曲目');
-    titleEl.textContent = '无法播放，已跳过';
-    nextTrack(); // 跳过
+    const success = await loadTrackBlob(index);
+    if (!success) {
+      titleEl.textContent = '无法播放，已跳过';
+      nextTrack();
+    }
   }
-}
 
   function playTrack() {
-    // 自动 resume AudioContext
     if (audioMotion.audioCtx.state === 'suspended') {
       audioMotion.audioCtx.resume();
     }
-
     if (sound) {
       sound.play();
     } else if (audioEl) {
@@ -180,8 +197,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnPrev.addEventListener('click', prevTrack);
   btnRandom.addEventListener('click', randomTrack);
   btnClose.addEventListener('click', () => {
-    if (sound) sound.stop();
-    if (audioEl) audioEl.pause();
+    cleanupAudio();
     playerEl.remove();
     localStorage.removeItem('brsp-collapsed');
   });
