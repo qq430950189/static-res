@@ -1,9 +1,10 @@
 document.addEventListener('DOMContentLoaded', () => {
-  const playlistUrl = 'https://od.lk/s/NV8yMDcxMTc3MzNf/playlist.json'; // 你的远程 JSON 地址
+  const playlistUrl = 'https://od.lk/s/NV8yMDcxMTc3MzNf/playlist.json';
   let playlist = [];
   let currentIndex = 0;
   let playedIndices = [];
   let sound = null;
+  let audioEl = null;
   let playing = false;
 
   const titleEl = document.getElementById('track-title');
@@ -35,47 +36,88 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   );
 
-  function loadTrack(index) {
-  if (!playlist.length) return;
-  if (sound) sound.unload();
-  currentIndex = index;
-  titleEl.textContent = playlist[index].title;
+  // 尝试 Web Audio 模式
+  function loadTrackWebAudio(index) {
+    return new Promise((resolve, reject) => {
+      try {
+        sound = new Howl({
+          src: [ playlist[index].url ],
+          html5: false,
+          onend: nextTrack,
+          onloaderror: () => reject('webaudio-fail')
+        });
+        sound.once('play', () => {
+          audioMotion.connectInput(sound);
+        });
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
 
-  sound = new Howl({
-    src: [ playlist[index].url ],
-    html5: false, // 用 Web Audio
-    onend: nextTrack
-  });
+  // HTML5 Audio 模式
+  function loadTrackHTML5(index) {
+    if (audioEl) {
+      audioEl.pause();
+      audioEl.src = '';
+    }
+    audioEl = new Audio(playlist[index].url);
+    audioEl.crossOrigin = 'anonymous';
+    audioEl.addEventListener('ended', nextTrack);
 
-  // 延迟连接，确保 Howler 已创建节点
-  sound.once('play', () => {
-    audioMotion.connectInput(sound);
-  });
-}
+    // 接入 AudioMotion
+    const ctx = audioMotion.audioCtx;
+    const srcNode = ctx.createMediaElementSource(audioEl);
+    srcNode.connect(audioMotion.analyzer);
+    audioMotion.analyzer.connect(ctx.destination);
+  }
+
+  // 智能加载
+  async function loadTrack(index) {
+    if (!playlist.length) return;
+    currentIndex = index;
+    titleEl.textContent = playlist[index].title;
+
+    // 先尝试 Web Audio
+    try {
+      await loadTrackWebAudio(index);
+    } catch {
+      console.warn('Web Audio 播放失败，切换 HTML5 Audio');
+      loadTrackHTML5(index);
+    }
+  }
 
   function playTrack() {
-    if (!sound) loadTrack(currentIndex);
-    sound.play();
+    if (sound) {
+      sound.play();
+    } else if (audioEl) {
+      audioEl.play();
+    } else {
+      loadTrack(currentIndex).then(() => {
+        if (sound) sound.play();
+        if (audioEl) audioEl.play();
+      });
+    }
     playing = true;
     btnPlay.textContent = '⏸';
   }
 
   function pauseTrack() {
     if (sound) sound.pause();
+    if (audioEl) audioEl.pause();
     playing = false;
     btnPlay.textContent = '▶';
   }
 
   function nextTrack() {
     currentIndex = (currentIndex + 1) % playlist.length;
-    loadTrack(currentIndex);
-    playTrack();
+    loadTrack(currentIndex).then(playTrack);
   }
 
   function prevTrack() {
     currentIndex = (currentIndex - 1 + playlist.length) % playlist.length;
-    loadTrack(currentIndex);
-    playTrack();
+    loadTrack(currentIndex).then(playTrack);
   }
 
   function randomTrack() {
@@ -85,8 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
       next = Math.floor(Math.random() * playlist.length);
     } while (playedIndices.includes(next) && playedIndices.length < playlist.length);
     playedIndices.push(next);
-    loadTrack(next);
-    playTrack();
+    loadTrack(next).then(playTrack);
   }
 
   // 按钮事件
@@ -99,6 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnRandom.addEventListener('click', randomTrack);
   btnClose.addEventListener('click', () => {
     if (sound) sound.stop();
+    if (audioEl) audioEl.pause();
     playerEl.remove();
     localStorage.removeItem('brsp-collapsed');
   });
@@ -107,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('brsp-collapsed', playerEl.classList.contains('collapsed'));
   });
 
-  // 从远程 JSON 获取播放列表
+  // 获取播放列表
   fetch(playlistUrl)
     .then(res => res.json())
     .then(data => {
