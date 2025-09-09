@@ -3,8 +3,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let playlist = [];
   let currentIndex = 0;
   let playedIndices = [];
-  let sound = null;
-  let audioEl = null;
+  let sound = null;       // Web Audio 模式
+  let audioEl = null;     // HTML5 模式
+  let srcNode = null;     // HTML5 模式的 MediaElementSource
   let playing = false;
 
   const titleEl = document.getElementById('track-title');
@@ -36,6 +37,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   );
 
+  // 检查 URL 是否可访问（403 跳过）
+  async function checkUrl(url) {
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      if (!res.ok) throw new Error(res.status);
+      return true;
+    } catch (e) {
+      console.warn(`音频无法访问 (${url})，状态码: ${e.message}`);
+      return false;
+    }
+  }
+
   // 尝试 Web Audio 模式
   function loadTrackWebAudio(index) {
     return new Promise((resolve, reject) => {
@@ -56,21 +69,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // HTML5 Audio 模式
+  // HTML5 Audio 模式（避免重复 connect）
   function loadTrackHTML5(index) {
-    if (audioEl) {
-      audioEl.pause();
-      audioEl.src = '';
-    }
-    audioEl = new Audio(playlist[index].url);
-    audioEl.crossOrigin = 'anonymous';
-    audioEl.addEventListener('ended', nextTrack);
+    if (!audioEl) {
+      audioEl = new Audio();
+      audioEl.crossOrigin = 'anonymous';
+      audioEl.addEventListener('ended', nextTrack);
 
-    // 接入 AudioMotion
-    const ctx = audioMotion.audioCtx;
-    const srcNode = ctx.createMediaElementSource(audioEl);
-    srcNode.connect(audioMotion.analyzer);
-    audioMotion.analyzer.connect(ctx.destination);
+      const ctx = audioMotion.audioCtx;
+      srcNode = ctx.createMediaElementSource(audioEl);
+      srcNode.connect(audioMotion.analyzer);
+      audioMotion.analyzer.connect(ctx.destination);
+    }
+    audioEl.src = playlist[index].url;
   }
 
   // 智能加载
@@ -78,6 +89,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!playlist.length) return;
     currentIndex = index;
     titleEl.textContent = playlist[index].title;
+
+    // 检查 URL 可用性
+    const ok = await checkUrl(playlist[index].url);
+    if (!ok) {
+      titleEl.textContent = '音频无法访问，已跳过';
+      nextTrack();
+      return;
+    }
 
     // 先尝试 Web Audio
     try {
@@ -89,6 +108,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function playTrack() {
+    // 自动 resume AudioContext
+    if (audioMotion.audioCtx.state === 'suspended') {
+      audioMotion.audioCtx.resume();
+    }
+
     if (sound) {
       sound.play();
     } else if (audioEl) {
