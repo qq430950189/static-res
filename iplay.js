@@ -37,21 +37,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   );
 
-  // 检查 URL 是否可访问（403 跳过）
-  async function checkUrl(url) {
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: { Range: 'bytes=0-1' }
-    });
-    if (res.status >= 400) throw new Error(res.status);
-    return true;
-  } catch (e) {
-    console.warn(`音频无法访问 (${url})，状态码: ${e.message}`);
-    return false;
-  }
-}
-
   // 尝试 Web Audio 模式
   function loadTrackWebAudio(index) {
     return new Promise((resolve, reject) => {
@@ -89,26 +74,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 智能加载
   async function loadTrack(index) {
-    if (!playlist.length) return;
-    currentIndex = index;
-    titleEl.textContent = playlist[index].title;
+  if (!playlist.length) return;
+  currentIndex = index;
+  titleEl.textContent = playlist[index].title;
 
-    // 检查 URL 可用性
-    const ok = await checkUrl(playlist[index].url);
-    if (!ok) {
-      titleEl.textContent = '音频无法访问，已跳过';
-      nextTrack();
-      return;
-    }
-
-    // 先尝试 Web Audio
-    try {
-      await loadTrackWebAudio(index);
-    } catch {
-      console.warn('Web Audio 播放失败，切换 HTML5 Audio');
-      loadTrackHTML5(index);
-    }
+  // 尝试 Web Audio 模式
+  try {
+    await new Promise((resolve, reject) => {
+      sound = new Howl({
+        src: [ playlist[index].url ],
+        html5: false,
+        onend: nextTrack,
+        onloaderror: () => reject('webaudio-fail')
+      });
+      sound.once('play', () => {
+        audioMotion.connectInput(sound);
+        resolve();
+      });
+    });
+    return; // 成功播放，直接返回
+  } catch {
+    console.warn('Web Audio 播放失败，尝试 HTML5 Audio');
   }
+
+  // 尝试 HTML5 Audio 模式
+  try {
+    if (!audioEl) {
+      audioEl = new Audio();
+      audioEl.crossOrigin = 'anonymous';
+      audioEl.addEventListener('ended', nextTrack);
+
+      const ctx = audioMotion.audioCtx;
+      srcNode = ctx.createMediaElementSource(audioEl);
+      srcNode.connect(audioMotion.analyzer);
+      audioMotion.analyzer.connect(ctx.destination);
+    }
+    audioEl.src = playlist[index].url;
+
+    await new Promise((resolve, reject) => {
+      audioEl.onerror = () => reject('html5-fail');
+      audioEl.oncanplay = () => resolve();
+    });
+
+    return; // 成功加载 HTML5 音频
+  } catch {
+    console.warn('HTML5 Audio 播放失败，跳过该曲目');
+    titleEl.textContent = '无法播放，已跳过';
+    nextTrack(); // 跳过
+  }
+}
 
   function playTrack() {
     // 自动 resume AudioContext
