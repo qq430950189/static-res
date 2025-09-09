@@ -39,15 +39,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 检查 URL 是否可访问（403 跳过）
   async function checkUrl(url) {
-    try {
-      const res = await fetch(url, { method: 'HEAD' });
-      if (!res.ok) throw new Error(res.status);
-      return true;
-    } catch (e) {
-      console.warn(`音频无法访问 (${url})，状态码: ${e.message}`);
-      return false;
-    }
+  try {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { Range: 'bytes=0-1' }
+    });
+    if (res.status >= 400) throw new Error(res.status);
+    return true;
+  } catch (e) {
+    console.warn(`音频无法访问 (${url})，状态码: ${e.message}`);
+    return false;
   }
+}
 
   // 尝试 Web Audio 模式
   function loadTrackWebAudio(index) {
