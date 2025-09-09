@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let audioEl = null;     // HTML5 / Blob 模式
   let srcNode = null;     // HTML5 模式的 MediaElementSource
   let playing = false;
+  let currentMode = null; // 'webaudio' | 'html5' | 'blob'
 
   const titleEl = document.getElementById('track-title');
   const btnPlay = document.getElementById('btn-play');
@@ -45,6 +46,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (audioEl) {
       audioEl.pause();
+      if (audioEl.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audioEl.src);
+      }
       audioEl.src = '';
     }
   }
@@ -60,7 +64,10 @@ document.addEventListener('DOMContentLoaded', () => {
           onloaderror: () => reject('webaudio-fail')
         });
         sound.once('play', () => {
-          audioMotion.connectInput(sound);
+          // 连接 Howler 内部 AudioNode
+          const node = sound._sounds[0]?._node;
+          if (node) audioMotion.connectInput(node);
+          currentMode = 'webaudio';
           resolve();
         });
       } catch (e) {
@@ -92,7 +99,10 @@ document.addEventListener('DOMContentLoaded', () => {
       prepareHTML5Audio();
       audioEl.src = playlist[index].url;
       audioEl.onerror = () => reject('html5-fail');
-      audioEl.oncanplay = () => resolve();
+      audioEl.oncanplay = () => {
+        currentMode = 'html5';
+        resolve();
+      };
     });
   }
 
@@ -106,7 +116,10 @@ document.addEventListener('DOMContentLoaded', () => {
       audioEl.src = blobUrl;
       await new Promise((resolve, reject) => {
         audioEl.onerror = () => reject('blob-fail');
-        audioEl.oncanplay = () => resolve();
+        audioEl.oncanplay = () => {
+          currentMode = 'blob';
+          resolve();
+        };
       });
       return true;
     } catch (e) {
@@ -144,9 +157,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function playTrack() {
+    // 必须用户手势后才能启动 AudioContext
     if (audioMotion.audioCtx.state === 'suspended') {
       audioMotion.audioCtx.resume();
     }
+
+    // 确保可视化连接在播放时建立
+    if (currentMode === 'html5' || currentMode === 'blob') {
+      audioMotion.connectInput(audioEl);
+    }
+
     if (sound) {
       sound.play();
     } else if (audioEl) {
